@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"os"
+	"p2p/colorize"
 )
 
 var done = make(chan struct{})
@@ -16,12 +16,14 @@ func main() {
 	flag.StringVar(&myAddr, "listen", "", "address which server will be listening")
 	flag.Parse()
 	if myAddr == "" {
-		log.Fatal("missing '-listen' argument")
+		fmt.Println(colorize.Colorize(3, "missing '-listen' argument"))
+		os.Exit(1)
 	}
 
 	ln, err := net.Listen("tcp", myAddr)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(colorize.Colorize(3, err.Error()))
+		os.Exit(1)
 	}
 
 	go broadcaster()
@@ -33,7 +35,7 @@ func main() {
 	for _, addr := range flag.Args() {
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
-			log.Print(err)
+			fmt.Println(colorize.Colorize(3, err.Error()))
 			continue
 		}
 		go handleConn(conn)
@@ -44,7 +46,7 @@ func main() {
 func handleInput(myAddr string) {
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
-		messages <- Message{myAddr + ": " + s.Text(), nil}
+		messages <- Message{colorize.Colorize(4, myAddr) + " -> " + s.Text(), nil}
 	}
 }
 
@@ -52,7 +54,7 @@ func listen(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Print(err)
+			fmt.Println(colorize.Colorize(3, err.Error()))
 			continue
 		}
 		go handleConn(conn)
@@ -70,8 +72,8 @@ func handleConn(conn net.Conn) {
 
 	who := conn.RemoteAddr().String()
 
-	messages <- Message{who + " подключился", ch}
-	fmt.Fprintln(os.Stdout, who+" подключился")
+	messages <- Message{colorize.Colorize(2, who+" подключился"), ch}
+	fmt.Fprintln(os.Stdout, colorize.Colorize(2, who+" подключился"))
 
 	entering <- ch
 
@@ -82,7 +84,8 @@ func handleConn(conn net.Conn) {
 	}
 
 	leaving <- ch
-	messages <- Message{who + " отключился", nil}
+	messages <- Message{colorize.Colorize(1, who+" отключился"), nil}
+	fmt.Fprintln(os.Stdout, colorize.Colorize(1, who+" отключился"))
 	conn.Close()
 }
 
