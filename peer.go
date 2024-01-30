@@ -38,7 +38,7 @@ func main() {
 			fmt.Println(colorize.Colorize(3, err.Error()))
 			continue
 		}
-		go handleConn(conn)
+		go handleOutcoming(conn)
 	}
 	<-done
 }
@@ -57,7 +57,7 @@ func listen(ln net.Listener) {
 			fmt.Println(colorize.Colorize(3, err.Error()))
 			continue
 		}
-		go handleConn(conn)
+		go handleIncoming(conn)
 	}
 }
 
@@ -66,14 +66,24 @@ type Message struct {
 	ch   chan string
 }
 
-func handleConn(conn net.Conn) {
+func handleIncoming(conn net.Conn) {
+	handleConn(conn, true)
+}
+
+func handleOutcoming(conn net.Conn) {
+	handleConn(conn, false)
+}
+
+func handleConn(conn net.Conn, isIncoming bool) {
 	ch := make(chan string)
 	go clientWriter(conn, ch)
 
 	who := conn.RemoteAddr().String()
 
-	messages <- Message{colorize.Colorize(2, who+" подключился"), ch}
-	fmt.Fprintln(os.Stdout, colorize.Colorize(2, who+" подключился"))
+	if isIncoming {
+		messages <- Message{colorize.Colorize(2, who+" подключился"), ch}
+		fmt.Fprintln(os.Stdout, colorize.Colorize(2, who+" подключился"))
+	}
 
 	entering <- ch
 
