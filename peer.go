@@ -7,9 +7,12 @@ import (
 	"net"
 	"os"
 	"p2p/colorize"
+	"strings"
 )
 
 var done = make(chan struct{})
+
+var Username string
 
 func main() {
 	var myAddr string
@@ -19,6 +22,10 @@ func main() {
 		fmt.Println(colorize.Colorize(3, "missing '-listen' argument"))
 		os.Exit(1)
 	}
+
+	fmt.Print("Ваше имя: ")
+	Username, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+	Username = strings.Join(strings.Fields(Username), " ")
 
 	ln, err := net.Listen("tcp", myAddr)
 	if err != nil {
@@ -30,7 +37,7 @@ func main() {
 
 	go listen(ln)
 
-	go handleInput(myAddr)
+	go handleInput()
 
 	for _, addr := range flag.Args() {
 		conn, err := net.Dial("tcp", addr)
@@ -43,10 +50,10 @@ func main() {
 	<-done
 }
 
-func handleInput(myAddr string) {
+func handleInput() {
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
-		messages <- Message{colorize.Colorize(4, myAddr) + " -> " + s.Text(), nil}
+		messages <- Message{colorize.Colorize(4, Username) + " -> " + s.Text(), nil}
 	}
 }
 
@@ -78,7 +85,10 @@ func handleConn(conn net.Conn, isIncoming bool) {
 	ch := make(chan string)
 	go clientWriter(conn, ch)
 
-	who := conn.RemoteAddr().String()
+	fmt.Fprintln(conn, Username)
+
+	who, _ := bufio.NewReader(conn).ReadString('\n')
+	who = strings.TrimSpace(who)
 
 	if isIncoming {
 		messages <- Message{colorize.Colorize(2, who+" подключился"), ch}
