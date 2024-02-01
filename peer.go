@@ -10,8 +10,6 @@ import (
 	"strings"
 )
 
-var done = make(chan struct{})
-
 var Username string
 
 func main() {
@@ -23,9 +21,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print("Ваше имя: ")
-	Username, _ = bufio.NewReader(os.Stdin).ReadString('\n')
-	Username = strings.Join(strings.Fields(Username), " ")
+	for {
+		fmt.Print("Ваше имя: ")
+		Username, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		Username = strings.Join(strings.Fields(Username), " ")
+		if Username != "" {
+			break
+		}
+		fmt.Println("Некорректное имя")
+	}
 
 	ln, err := net.Listen("tcp", myAddr)
 	if err != nil {
@@ -35,10 +39,13 @@ func main() {
 
 	go broadcaster()
 
-	go listen(ln)
-
 	go handleInput()
 
+	go connectArgs()
+	listen(ln)
+}
+
+func connectArgs() {
 	for _, addr := range flag.Args() {
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
@@ -47,7 +54,6 @@ func main() {
 		}
 		go handleOutcoming(conn)
 	}
-	<-done
 }
 
 func handleInput() {
