@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
+
+	//"log"
 	"net"
 	"os"
 	"p2p/colorize"
@@ -112,15 +113,20 @@ func handleConn(conn net.Conn, isIncoming bool) {
 	var msg Message
 	for {
 		if err := client.Dec.Decode(&msg); err != nil {
-			log.Print(err)
+			fmt.Fprintln(os.Stdout, colorize.Colorize(1, who+" отключился"))
+			messages <- Message{Text: colorize.Colorize(1, who+" отключился"), SenderIP: msg.ParentIP}
 			leaving <- client
+
+			//log.Print(err)
 			break
 		}
 		if msg.ParentIP != "" {
+			messages <- Message{Text: colorize.Colorize(1, who+" отключился"), SenderIP: msg.ParentIP}
 			leaving <- client
+
 			newConn, err := net.Dial("tcp", msg.ParentIP)
 			if err != nil {
-				log.Print(err)
+				//log.Print(err)
 				continue
 			}
 			go handleOutcoming(newConn)
@@ -130,9 +136,6 @@ func handleConn(conn net.Conn, isIncoming bool) {
 			messages <- Message{Text: msg.Text, SenderIP: client.IP}
 		}
 	}
-
-	messages <- Message{Text: colorize.Colorize(1, who+" отключился")}
-	fmt.Fprintln(os.Stdout, colorize.Colorize(1, who+" отключился"))
 
 	conn.Close()
 }
@@ -182,7 +185,7 @@ func broadcaster() {
 func clientWriter(cli *Client) {
 	for msg := range cli.Ch {
 		if err := cli.Enc.Encode(msg); err != nil {
-			log.Print(err)
+			//log.Print(err)
 			continue
 		}
 	}
