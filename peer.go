@@ -32,7 +32,7 @@ func main() {
 		if Username != "" {
 			break
 		}
-		fmt.Println("Некорректное имя")
+		fmt.Println(colorize.Colorize(3, "Некорректное имя"))
 	}
 
 	go broadcaster()
@@ -42,7 +42,7 @@ func main() {
 	if len(flag.Args()) != 0 {
 		parentConn, err := net.Dial("tcp", flag.Args()[0])
 		if err != nil {
-			fmt.Println(colorize.Colorize(3, err.Error()))
+			fmt.Println(colorize.Colorize(3, "cant connect: connection refused"))
 		} else {
 			go handleOutcoming(parentConn)
 		}
@@ -72,8 +72,11 @@ func handleInput() {
 		if text == "disconnect" {
 			disconnect <- Message{ParentIP: ParentIP}
 			break
+		} else if text == "" {
+			fmt.Println(colorize.Colorize(3, "Нельзя отправить пустое сообщение"))
+			continue
 		}
-		messages <- Message{Text: colorize.Colorize(4, Username) + " -> " + s.Text()}
+		messages <- Message{Text: colorize.Colorize(4, Username) + " -> " + text}
 	}
 }
 
@@ -165,7 +168,7 @@ func broadcaster() {
 				}
 			}
 
-			fmt.Println("successfully disconnected")
+			fmt.Println(":::successfully disconnected!:::")
 			os.Exit(1)
 		case msg := <-messages:
 			for cli, _ := range clients {
