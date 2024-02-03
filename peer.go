@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"p2p/colorize"
@@ -11,6 +13,7 @@ import (
 )
 
 var Username string
+var ParentIP string
 
 func main() {
 	var myAddr string
@@ -31,39 +34,25 @@ func main() {
 		fmt.Println("Некорректное имя")
 	}
 
+	go broadcaster()
+
+	go handleInput()
+
+	if len(flag.Args()) != 0 {
+		parentConn, err := net.Dial("tcp", flag.Args()[0])
+		if err != nil {
+			fmt.Println(colorize.Colorize(3, err.Error()))
+		} else {
+			go handleOutcoming(parentConn)
+		}
+	}
+
 	ln, err := net.Listen("tcp", myAddr)
 	if err != nil {
 		fmt.Println(colorize.Colorize(3, err.Error()))
 		os.Exit(1)
 	}
 
-	go broadcaster()
-
-	go handleInput()
-
-	go connectArgs()
-	listen(ln)
-}
-
-func connectArgs() {
-	for _, addr := range flag.Args() {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			fmt.Println(colorize.Colorize(3, err.Error()))
-			continue
-		}
-		go handleOutcoming(conn)
-	}
-}
-
-func handleInput() {
-	s := bufio.NewScanner(os.Stdin)
-	for s.Scan() {
-		messages <- Message{colorize.Colorize(4, Username) + " -> " + s.Text(), nil}
-	}
-}
-
-func listen(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -74,9 +63,23 @@ func listen(ln net.Listener) {
 	}
 }
 
+func handleInput() {
+	s := bufio.NewScanner(os.Stdin)
+	var text string
+	for s.Scan() {
+		text = strings.Join(strings.Fields(s.Text()), " ")
+		if text == "disconnect" {
+			disconnect <- Message{ParentIP: ParentIP}
+			break
+		}
+		messages <- Message{Text: colorize.Colorize(4, Username) + " -> " + s.Text()}
+	}
+}
+
 type Message struct {
-	text string
-	ch   chan string
+	Text     string
+	SenderIP string
+	ParentIP string
 }
 
 func handleIncoming(conn net.Conn) {
@@ -88,8 +91,9 @@ func handleOutcoming(conn net.Conn) {
 }
 
 func handleConn(conn net.Conn, isIncoming bool) {
-	ch := make(chan string)
-	go clientWriter(conn, ch)
+	client := NewClient(conn)
+
+	go clientWriter(client)
 
 	fmt.Fprintln(conn, Username)
 
@@ -97,53 +101,98 @@ func handleConn(conn net.Conn, isIncoming bool) {
 	who = strings.TrimSpace(who)
 
 	if isIncoming {
-		messages <- Message{colorize.Colorize(2, who+" подключился"), ch}
+		messages <- Message{Text: colorize.Colorize(2, who+" подключился")}
 		fmt.Fprintln(os.Stdout, colorize.Colorize(2, who+" подключился"))
+	} else {
+		ParentIP = client.IP
 	}
 
-	entering <- ch
+	entering <- client
 
-	s := bufio.NewScanner(conn)
-	for s.Scan() {
-		fmt.Fprintln(os.Stdout, s.Text())
-		messages <- Message{s.Text(), ch}
+	var msg Message
+	for {
+		if err := client.Dec.Decode(&msg); err != nil {
+			log.Print(err)
+			leaving <- client
+			break
+		}
+		if msg.ParentIP != "" {
+			leaving <- client
+			newConn, err := net.Dial("tcp", msg.ParentIP)
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			go handleOutcoming(newConn)
+			break
+		} else {
+			fmt.Fprintln(os.Stdout, msg.Text)
+			messages <- Message{Text: msg.Text, SenderIP: client.IP}
+		}
 	}
 
-	leaving <- ch
-	messages <- Message{colorize.Colorize(1, who+" отключился"), nil}
+	messages <- Message{Text: colorize.Colorize(1, who+" отключился")}
 	fmt.Fprintln(os.Stdout, colorize.Colorize(1, who+" отключился"))
+
 	conn.Close()
 }
 
-type client chan<- string
+type Client struct {
+	Ch  chan Message
+	Enc *json.Encoder
+	Dec *json.Decoder
+	IP  string
+}
 
 var (
-	messages = make(chan Message)
-	entering = make(chan client)
-	leaving  = make(chan client)
+	disconnect = make(chan Message)
+	messages   = make(chan Message)
+	entering   = make(chan *Client)
+	leaving    = make(chan *Client)
 )
 
 func broadcaster() {
-	var clients = make(map[client]bool)
+	var clients = make(map[*Client]bool)
 	for {
 		select {
+		case msg := <-disconnect:
+			for cli, _ := range clients {
+				if cli.IP != ParentIP {
+					cli.Ch <- msg
+				}
+			}
+
+			fmt.Println("successfully disconnected")
+			os.Exit(1)
 		case msg := <-messages:
-			for cli := range clients {
-				if msg.ch != cli {
-					cli <- msg.text
+			for cli, _ := range clients {
+				if cli.IP != msg.SenderIP {
+					cli.Ch <- msg
 				}
 			}
 		case cli := <-entering:
 			clients[cli] = true
 		case cli := <-leaving:
 			delete(clients, cli)
-			close(cli)
+			close(cli.Ch)
 		}
 	}
 }
 
-func clientWriter(conn net.Conn, ch <-chan string) {
-	for msg := range ch {
-		fmt.Fprintln(conn, msg)
+func clientWriter(cli *Client) {
+	for msg := range cli.Ch {
+		if err := cli.Enc.Encode(msg); err != nil {
+			log.Print(err)
+			continue
+		}
+	}
+}
+
+func NewClient(conn net.Conn) *Client {
+	return &Client{
+		Ch:  make(chan Message),
+		Dec: json.NewDecoder(conn),
+		Enc: json.NewEncoder(conn),
+		IP:  conn.RemoteAddr().String(),
 	}
 }
